@@ -23,7 +23,7 @@ async function decryptEmbed(embedUrl, referrer) {
     const html = await response.text();
     
     // Extract encrypted data
-    const encryptedDataMatch = html.match(/var\s+ct\s*=\s*['"]([^'"]+)['"]/);
+    const encryptedDataMatch = html.match(/data-value="([^"]+)"/);
     const keyMatch = html.match(/\['slice'\]\((\d+,\s*\d+)\)/);
     
     if (!encryptedDataMatch || !keyMatch) {
@@ -36,8 +36,11 @@ async function decryptEmbed(embedUrl, referrer) {
     // Get the key from the encrypted data
     const key = encryptedData.slice(start, end);
     
-    // Decrypt the data
-    const decrypted = crypto.Rabbit.decrypt(encryptedData, key).toString(crypto.enc.Utf8);
+    // Decrypt the data using Rabbit algorithm
+    let decrypted = crypto.Rabbit.decrypt(encryptedData, key);
+    
+    // Convert WordArray to string
+    decrypted = decrypted.toString(crypto.enc.Utf8);
     
     try {
       const result = JSON.parse(decrypted);
@@ -51,6 +54,7 @@ async function decryptEmbed(embedUrl, referrer) {
         server: result.server || 1
       };
     } catch (e) {
+      console.error('Failed to parse decrypted data:', decrypted);
       throw new Error('Failed to parse decrypted data: ' + e.message);
     }
   } catch (error) {
