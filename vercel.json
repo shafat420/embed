@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/**/*.rs",
+      "use": "@vercel/rust"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/",
+      "dest": "/api/index.rs"
+    },
+    {
+      "src": "/embed",
+      "dest": "/api/embed.rs"
+    }
+  ]
+}
