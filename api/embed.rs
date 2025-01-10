@@ -1,6 +1,6 @@
 use vercel_runtime::{run, Body, Error, Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use std::{process::Command, path::Path};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EmbedSources {
@@ -45,15 +45,31 @@ pub async fn handler(req: Request) -> Result<Response<Body>, Error> {
             .map(|p| p.split('=').nth(1).unwrap_or("")))
         .ok_or_else(|| Error::from("Missing referrer parameter"))?;
 
+    // Get the current file's directory
+    let current_dir = std::env::current_dir()
+        .map_err(|e| Error::from(format!("Failed to get current directory: {}", e)))?;
+    
+    // Resolve path to rabbit.js
+    let script_path = current_dir.join("api").join("rabbit.js");
+    
     // Call Node.js script for decryption
     let output = Command::new("node")
-        .arg("rabbit.js")
+        .arg(&script_path)
         .arg(format!("--embed-url={}", url))
         .arg(format!("--referrer={}", referrer))
+        .current_dir(script_path.parent().unwrap()) // Set working directory to script's location
         .output()
         .map_err(|e| Error::from(format!("Failed to execute command: {}", e)))?;
 
+    // Check for stderr output
+    if !output.stderr.is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("Script stderr: {}", stderr);
+    }
+
     let parsed_output = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    println!("Script output: {}", parsed_output);
+
     let embed_json: EmbedSources = serde_json::from_str(&parsed_output)
         .map_err(|e| Error::from(format!("Failed to parse JSON: {}", e)))?;
 
