@@ -1,12 +1,17 @@
 {
-  "name": "rabbit_wasm",
+  "name": "embed_decrypt",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "API to decrypt encrypted embed sources",
+  "main": "api/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vercel dev",
+    "deploy": "vercel deploy"
   },
-  "keywords": [],
+  "keywords": [
+    "embed",
+    "decrypt",
+    "api"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -14,9 +19,11 @@
     "@types/node": "^20.12.7",
     "@types/node-fetch": "^2.6.11",
     "crypto-js": "^4.2.0",
+    "node-fetch": "^2.6.7",
     "image-pixels": "^2.2.2",
-    "minimist": "^1.2.8",
-    "module-alias": "^2.2.3",
-    "typescript": "^5.4.5"
+    "minimist": "^1.2.8"
+  },
+  "devDependencies": {
+    "vercel": "^33.2.0"
   }
 }
