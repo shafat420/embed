@@ -22,19 +22,61 @@ async function decryptEmbed(embedUrl, referrer) {
 
     const html = await response.text();
     
-    // Extract encrypted data
-    const encryptedDataMatch = html.match(/data-value="([^"]+)"/);
-    const keyMatch = html.match(/\['slice'\]\((\d+,\s*\d+)\)/);
+    // Log HTML for debugging
+    console.log('HTML Response:', html);
+    
+    // Extract encrypted data - try multiple patterns
+    let encryptedData, keyMatch;
+    
+    // Pattern 1: data-value attribute
+    const pattern1 = html.match(/data-value="([^"]+)"/);
+    
+    // Pattern 2: JavaScript variable assignment
+    const pattern2 = html.match(/var\s+ct\s*=\s*['"]([^'"]+)['"]/);
+    
+    // Pattern 3: hidden input field
+    const pattern3 = html.match(/<input[^>]+value="([^"]+)"[^>]+id="[\w-]*ct[\w-]*"/i);
+    
+    // Pattern 4: direct script variable
+    const pattern4 = html.match(/ct\s*=\s*['"]([^'"]+)['"]/);
+    
+    // Try all patterns
+    const encryptedDataMatch = pattern1 || pattern2 || pattern3 || pattern4;
+    
+    // Try different key patterns
+    const keyPattern1 = html.match(/\['slice'\]\((\d+,\s*\d+)\)/);
+    const keyPattern2 = html.match(/\.slice\((\d+,\s*\d+)\)/);
+    const keyPattern3 = html.match(/substring\((\d+,\s*\d+)\)/);
+    
+    keyMatch = keyPattern1 || keyPattern2 || keyPattern3;
     
     if (!encryptedDataMatch || !keyMatch) {
+      console.error('Debug info:', {
+        hasPattern1: !!pattern1,
+        hasPattern2: !!pattern2,
+        hasPattern3: !!pattern3,
+        hasPattern4: !!pattern4,
+        hasKeyPattern1: !!keyPattern1,
+        hasKeyPattern2: !!keyPattern2,
+        hasKeyPattern3: !!keyPattern3,
+        htmlLength: html.length,
+        htmlPreview: html.substring(0, 200) // First 200 chars
+      });
       throw new Error('Could not find encrypted data or key');
     }
 
-    const encryptedData = encryptedDataMatch[1];
+    encryptedData = encryptedDataMatch[1];
     const [start, end] = keyMatch[1].split(',').map(n => parseInt(n.trim()));
     
     // Get the key from the encrypted data
     const key = encryptedData.slice(start, end);
+    
+    console.log('Debug decryption:', {
+      encryptedDataLength: encryptedData.length,
+      keyIndices: [start, end],
+      keyLength: key.length,
+      key: key
+    });
     
     // Decrypt the data using Rabbit algorithm
     let decrypted = crypto.Rabbit.decrypt(encryptedData, key);
