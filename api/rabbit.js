@@ -4,53 +4,195 @@ const minimist = require('minimist');
 
 async function decryptEmbed(embedUrl, referrer) {
   try {
+    console.log('Fetching URL:', embedUrl);
+    console.log('Using referrer:', referrer);
+
     // First request to get cookies and encrypted data
     const response = await fetch(embedUrl, {
       headers: {
         'Referer': referrer,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'cross-site'
       }
     });
 
     const html = await response.text();
     
-    // Extract encrypted data from script
-    const scriptPattern = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+    console.log('Response status:', response.status);
+    console.log('Response headers:', response.headers.raw());
+    
+    // Try multiple patterns to find encrypted data
     let encryptedData, keyMatch;
     
+    // Pattern 1: Inside script tag with ct variable
+    const scriptPattern = /<script[^>]*>([\s\S]*?)<\/script>/gi;
     let scriptMatch;
     while ((scriptMatch = scriptPattern.exec(html)) !== null) {
       const scriptContent = scriptMatch[1];
       
-      // Look for ct variable
-      const ctMatch = scriptContent.match(/var\s+ct\s*=\s*['"]([^'"]+)['"]/);
-      if (ctMatch) {
-        encryptedData = ctMatch[1];
-        // Look for key in the same script
-        const sliceMatch = scriptContent.match(/\['slice'\]\((\d+,\s*\d+)\)/);
-        if (sliceMatch) {
-          keyMatch = sliceMatch;
-          break;
+      // Try different variable patterns
+      const patterns = [
+        /var\s+ct\s*=\s*['"]([^'"]+)['"]/,
+        /const\s+ct\s*=\s*['"]([^'"]+)['"]/,
+        /let\s+ct\s*=\s*['"]([^'"]+)['"]/,
+        /ct\s*=\s*['"]([^'"]+)['"]/,
+        /var\s+data\s*=\s*['"]([^'"]+)['"]/,
+        /const\s+data\s*=\s*['"]([^'"]+)['"]/
+      ];
+
+      for (const pattern of patterns) {
+        const ctMatch = scriptContent.match(pattern);
+        if (ctMatch) {
+          encryptedData = ctMatch[1];
+          // Look for key patterns
+          const keyPatterns = [
+            /\['slice'\]\((\d+,\s*\d+)\)/,
+            /\.slice\((\d+,\s*\d+)\)/,
+            /substring\((\d+,\s*\d+)\)/
+          ];
+          
+          for (const keyPattern of keyPatterns) {
+            const match = scriptContent.match(keyPattern);
+            if (match) {
+              keyMatch = match;
+              break;
+            }
+          }
+          if (keyMatch) break;
+        }
+      }
+      if (encryptedData && keyMatch) break;
+    }
+
+    // Pattern 2: Hidden input fields
+    if (!encryptedData) {
+      const inputPatterns = [
+        /<input[^>]+value="([^"]+)"[^>]+id="ct"/i,
+        /<input[^>]+id="ct"[^>]+value="([^"]+)"/i,
+        /<input[^>]+value="([^"]+)"[^>]+class="[^"]*ct[^"]*"/i,
+        /<input[^>]+data-value="([^"]+)"/i
+      ];
+
+      for (const pattern of inputPatterns) {
+        const match = html.match(pattern);
+        if (match) {
+          encryptedData = match[1];
+          // Look for key in the surrounding HTML
+          const keyPatterns = [
+            /\.slice\((\d+,\s*\d+)\)/,
+            /\['slice'\]\((\d+,\s*\d+)\)/,
+            /substring\((\d+,\s*\d+)\)/
+          ];
+          
+          for (const keyPattern of keyPatterns) {
+            const match = html.match(keyPattern);
+            if (match) {
+              keyMatch = match;
+              break;
+            }
+          }
+          if (keyMatch) break;
         }
       }
     }
 
+    // Pattern 3: data attributes
+    if (!encryptedData) {
+      const dataPatterns = [
+        /data-value="([^"]+)"/,
+        /data-ct="([^"]+)"/,
+        /data-encrypted="([^"]+)"/
+      ];
+
+      for (const pattern of dataPatterns) {
+        const match = html.match(pattern);
+        if (match) {
+          encryptedData = match[1];
+          const keyPatterns = [
+            /\.slice\((\d+,\s*\d+)\)/,
+            /\['slice'\]\((\d+,\s*\d+)\)/,
+            /substring\((\d+,\s*\d+)\)/
+          ];
+          
+          for (const keyPattern of keyPatterns) {
+            const match = html.match(keyPattern);
+            if (match) {
+              keyMatch = match;
+              break;
+            }
+          }
+          if (keyMatch) break;
+        }
+      }
+    }
+
+    // Pattern 4: Direct script variable assignment
+    if (!encryptedData) {
+      const scriptContent = html.replace(/\\n/g, '');
+      const directPatterns = [
+        /ct=['"]([^'"]+)['"]/,
+        /data=['"]([^'"]+)['"]/,
+        /encrypted=['"]([^'"]+)['"]/
+      ];
+
+      for (const pattern of directPatterns) {
+        const match = scriptContent.match(pattern);
+        if (match) {
+          encryptedData = match[1];
+          const keyMatch = scriptContent.match(/\.(slice|substring)\((\d+,\s*\d+)\)/);
+          if (keyMatch) {
+            keyMatch = [keyMatch[0], keyMatch[2]];
+            break;
+          }
+        }
+      }
+    }
+    
+    // Debug output
+    console.log('Found encrypted data:', !!encryptedData);
+    console.log('Found key match:', !!keyMatch);
+    
     if (!encryptedData || !keyMatch) {
+      console.log('HTML Preview (first 1000 chars):', html.substring(0, 1000));
+      console.log('HTML Preview (last 1000 chars):', html.substring(html.length - 1000));
       throw new Error('Could not find encrypted data or key');
     }
 
     // Parse key indices
     const [start, end] = keyMatch[1].split(',').map(n => parseInt(n.trim()));
+    console.log('Key indices:', start, end);
     
     // Get key from encrypted data
     const key = encryptedData.slice(start, end);
+    console.log('Key length:', key.length);
     
-    // Decrypt using Rabbit algorithm
-    let decrypted = crypto.Rabbit.decrypt(encryptedData, key);
-    decrypted = decrypted.toString(crypto.enc.Utf8);
+    // Try decryption with both Base64 and raw data
+    let decrypted;
+    try {
+      decrypted = crypto.Rabbit.decrypt(encryptedData, key);
+      decrypted = decrypted.toString(crypto.enc.Utf8);
+    } catch (e) {
+      console.log('First decryption attempt failed, trying Base64...');
+      const wordArray = crypto.enc.Base64.parse(encryptedData);
+      decrypted = crypto.Rabbit.decrypt(wordArray, key);
+      decrypted = decrypted.toString(crypto.enc.Utf8);
+    }
     
-    // Parse and return result
+    console.log('Decryption successful, parsing JSON...');
+    
+    // Parse and validate result
     const result = JSON.parse(decrypted);
+    
+    if (!result.sources || !Array.isArray(result.sources)) {
+      throw new Error('Invalid decrypted data format');
+    }
+    
     return {
       sources: result.sources.map(source => ({
         file: source.file,
