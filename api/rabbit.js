@@ -4,6 +4,10 @@ const minimist = require('minimist');
 
 async function decryptEmbed(embedUrl, referrer) {
   try {
+    // URL decode parameters
+    embedUrl = decodeURIComponent(embedUrl);
+    referrer = decodeURIComponent(referrer);
+    
     console.log('Fetching URL:', embedUrl);
     console.log('Using referrer:', referrer);
 
@@ -25,7 +29,7 @@ async function decryptEmbed(embedUrl, referrer) {
     const html = await response.text();
     
     console.log('Response status:', response.status);
-    console.log('Response headers:', response.headers.raw());
+    console.log('Response headers:', JSON.stringify(response.headers.raw(), null, 2));
     
     // Try multiple patterns to find encrypted data
     let encryptedData, keyMatch;
@@ -43,7 +47,8 @@ async function decryptEmbed(embedUrl, referrer) {
         /let\s+ct\s*=\s*['"]([^'"]+)['"]/,
         /ct\s*=\s*['"]([^'"]+)['"]/,
         /var\s+data\s*=\s*['"]([^'"]+)['"]/,
-        /const\s+data\s*=\s*['"]([^'"]+)['"]/
+        /const\s+data\s*=\s*['"]([^'"]+)['"]/,
+        /var\s+_0x[a-f0-9]+\s*=\s*['"]([^'"]+)['"]/  // Obfuscated variable names
       ];
 
       for (const pattern of patterns) {
@@ -54,17 +59,22 @@ async function decryptEmbed(embedUrl, referrer) {
           const keyPatterns = [
             /\['slice'\]\((\d+,\s*\d+)\)/,
             /\.slice\((\d+,\s*\d+)\)/,
-            /substring\((\d+,\s*\d+)\)/
+            /substring\((\d+,\s*\d+)\)/,
+            /substr\((\d+,\s*\d+)\)/
           ];
           
           for (const keyPattern of keyPatterns) {
             const match = scriptContent.match(keyPattern);
             if (match) {
               keyMatch = match;
+              console.log('Found key pattern:', match[0]);
               break;
             }
           }
-          if (keyMatch) break;
+          if (keyMatch) {
+            console.log('Found encrypted data in script tag');
+            break;
+          }
         }
       }
       if (encryptedData && keyMatch) break;
@@ -72,6 +82,7 @@ async function decryptEmbed(embedUrl, referrer) {
 
     // Pattern 2: Hidden input fields
     if (!encryptedData) {
+      console.log('Trying hidden input fields...');
       const inputPatterns = [
         /<input[^>]+value="([^"]+)"[^>]+id="ct"/i,
         /<input[^>]+id="ct"[^>]+value="([^"]+)"/i,
@@ -87,23 +98,29 @@ async function decryptEmbed(embedUrl, referrer) {
           const keyPatterns = [
             /\.slice\((\d+,\s*\d+)\)/,
             /\['slice'\]\((\d+,\s*\d+)\)/,
-            /substring\((\d+,\s*\d+)\)/
+            /substring\((\d+,\s*\d+)\)/,
+            /substr\((\d+,\s*\d+)\)/
           ];
           
           for (const keyPattern of keyPatterns) {
             const match = html.match(keyPattern);
             if (match) {
               keyMatch = match;
+              console.log('Found key pattern in HTML:', match[0]);
               break;
             }
           }
-          if (keyMatch) break;
+          if (keyMatch) {
+            console.log('Found encrypted data in input field');
+            break;
+          }
         }
       }
     }
 
     // Pattern 3: data attributes
     if (!encryptedData) {
+      console.log('Trying data attributes...');
       const dataPatterns = [
         /data-value="([^"]+)"/,
         /data-ct="([^"]+)"/,
@@ -117,37 +134,45 @@ async function decryptEmbed(embedUrl, referrer) {
           const keyPatterns = [
             /\.slice\((\d+,\s*\d+)\)/,
             /\['slice'\]\((\d+,\s*\d+)\)/,
-            /substring\((\d+,\s*\d+)\)/
+            /substring\((\d+,\s*\d+)\)/,
+            /substr\((\d+,\s*\d+)\)/
           ];
           
           for (const keyPattern of keyPatterns) {
             const match = html.match(keyPattern);
             if (match) {
               keyMatch = match;
+              console.log('Found key pattern in data attribute:', match[0]);
               break;
             }
           }
-          if (keyMatch) break;
+          if (keyMatch) {
+            console.log('Found encrypted data in data attribute');
+            break;
+          }
         }
       }
     }
 
     // Pattern 4: Direct script variable assignment
     if (!encryptedData) {
+      console.log('Trying direct script variables...');
       const scriptContent = html.replace(/\\n/g, '');
       const directPatterns = [
         /ct=['"]([^'"]+)['"]/,
         /data=['"]([^'"]+)['"]/,
-        /encrypted=['"]([^'"]+)['"]/
+        /encrypted=['"]([^'"]+)['"]/,
+        /_0x[a-f0-9]+=\s*['"]([^'"]+)['"]/  // Obfuscated assignments
       ];
 
       for (const pattern of directPatterns) {
         const match = scriptContent.match(pattern);
         if (match) {
           encryptedData = match[1];
-          const keyMatch = scriptContent.match(/\.(slice|substring)\((\d+,\s*\d+)\)/);
+          const keyMatch = scriptContent.match(/\.(slice|substring|substr)\((\d+,\s*\d+)\)/);
           if (keyMatch) {
             keyMatch = [keyMatch[0], keyMatch[2]];
+            console.log('Found key in direct assignment:', keyMatch[0]);
             break;
           }
         }
@@ -175,13 +200,19 @@ async function decryptEmbed(embedUrl, referrer) {
     // Try decryption with both Base64 and raw data
     let decrypted;
     try {
+      console.log('Attempting direct decryption...');
       decrypted = crypto.Rabbit.decrypt(encryptedData, key);
       decrypted = decrypted.toString(crypto.enc.Utf8);
     } catch (e) {
-      console.log('First decryption attempt failed, trying Base64...');
-      const wordArray = crypto.enc.Base64.parse(encryptedData);
-      decrypted = crypto.Rabbit.decrypt(wordArray, key);
-      decrypted = decrypted.toString(crypto.enc.Utf8);
+      console.log('First decryption attempt failed, trying Base64...', e.message);
+      try {
+        const wordArray = crypto.enc.Base64.parse(encryptedData);
+        decrypted = crypto.Rabbit.decrypt(wordArray, key);
+        decrypted = decrypted.toString(crypto.enc.Utf8);
+      } catch (e2) {
+        console.log('Base64 decryption failed:', e2.message);
+        throw e2;
+      }
     }
     
     console.log('Decryption successful, parsing JSON...');
@@ -190,6 +221,7 @@ async function decryptEmbed(embedUrl, referrer) {
     const result = JSON.parse(decrypted);
     
     if (!result.sources || !Array.isArray(result.sources)) {
+      console.log('Invalid result structure:', result);
       throw new Error('Invalid decrypted data format');
     }
     
